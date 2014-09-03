@@ -14,6 +14,7 @@ const (
 	CredTypeSshKey                     = C.GIT_CREDTYPE_SSH_KEY
 	CredTypeSshCustom                  = C.GIT_CREDTYPE_SSH_CUSTOM
 	CredTypeDefault                    = C.GIT_CREDTYPE_DEFAULT
+	CredTypeSshMemory                  = C.GIT_CREDTYPE_SSH_MEMORY
 )
 
 type Cred struct {
@@ -56,6 +57,20 @@ func NewCredSshKey(username string, publickey string, privatekey string, passphr
 	cpassphrase := C.CString(passphrase)
 	defer C.free(unsafe.Pointer(cpassphrase))
 	ret := C.git_cred_ssh_key_new(&cred.ptr, cusername, cpublickey, cprivatekey, cpassphrase)
+	return int(ret), cred
+}
+
+func NewCredSshMemoryKey(username string, publickey string, privatekey string, passphrase string) (int, Cred) {
+	cred := Cred{}
+	cusername := C.CString(username)
+	defer C.free(unsafe.Pointer(cusername))
+	cpublickey := C.CString(publickey)
+	defer C.free(unsafe.Pointer(cpublickey))
+	cprivatekey := C.CString(privatekey)
+	defer C.free(unsafe.Pointer(cprivatekey))
+	cpassphrase := C.CString(passphrase)
+	defer C.free(unsafe.Pointer(cpassphrase))
+	ret := C.git_cred_ssh_key_memory_new(&cred.ptr, cusername, cpublickey, cprivatekey, cpassphrase)
 	return int(ret), cred
 }
 

@@ -2,7 +2,6 @@ package git
 
 /*
 #include <git2.h>
-#include <git2/errors.h>
 */
 import "C"
 import (
@@ -14,7 +13,7 @@ type ReferenceType int
 
 const (
 	ReferenceSymbolic ReferenceType = C.GIT_REF_SYMBOLIC
-	ReferenceOid                    = C.GIT_REF_OID
+	ReferenceOid      ReferenceType = C.GIT_REF_OID
 )
 
 type Reference struct {
@@ -294,6 +293,10 @@ func (v *ReferenceNameIterator) Next() (string, error) {
 // returned error is git.ErrIterOver
 func (v *ReferenceIterator) Next() (*Reference, error) {
 	var ptr *C.git_reference
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ret := C.git_reference_next(&ptr, v.ptr)
 	if ret < 0 {
 		return nil, MakeGitError(ret)

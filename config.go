@@ -2,7 +2,6 @@ package git
 
 /*
 #include <git2.h>
-#include <git2/errors.h>
 */
 import "C"
 import (
@@ -235,6 +234,10 @@ func (c *Config) SetInt32(name string, value int32) (err error) {
 	cname := C.CString(name)
 	defer C.free(unsafe.Pointer(cname))
 
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ret := C.git_config_set_int32(c.ptr, cname, C.int32_t(value))
 	if ret < 0 {
 		return MakeGitError(ret)
@@ -349,6 +352,9 @@ type ConfigIterator struct {
 // Next returns the next entry for this iterator
 func (iter *ConfigIterator) Next() (*ConfigEntry, error) {
 	var centry *C.git_config_entry
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	ret := C.git_config_next(&centry, iter.ptr)
 	if ret < 0 {

@@ -72,6 +72,9 @@ func InitRepository(path string, isbare bool) (*Repository, error) {
 func NewRepositoryWrapOdb(odb *Odb) (repo *Repository, err error) {
 	repo = new(Repository)
 
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ret := C.git_repository_wrap_odb(&repo.ptr, odb.ptr)
 	if ret < 0 {
 		return nil, MakeGitError(ret)
@@ -386,6 +389,9 @@ func (v *Repository) CreateTag(
 
 	ctarget := commit.gitObject.ptr
 
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ret := C.git_tag_create(oid.toC(), v.ptr, cname, ctarget, taggerSig, cmessage, 0)
 	if ret < 0 {
 		return nil, MakeGitError(ret)
@@ -450,7 +456,7 @@ func (v *Repository) TreeBuilder() (*TreeBuilder, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if ret := C.git_treebuilder_create(&bld.ptr, nil); ret < 0 {
+	if ret := C.git_treebuilder_create(&bld.ptr, v.ptr, nil); ret < 0 {
 		return nil, MakeGitError(ret)
 	}
 	runtime.SetFinalizer(bld, (*TreeBuilder).Free)
@@ -465,7 +471,7 @@ func (v *Repository) TreeBuilderFromTree(tree *Tree) (*TreeBuilder, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if ret := C.git_treebuilder_create(&bld.ptr, tree.cast_ptr); ret < 0 {
+	if ret := C.git_treebuilder_create(&bld.ptr, v.ptr, tree.cast_ptr); ret < 0 {
 		return nil, MakeGitError(ret)
 	}
 	runtime.SetFinalizer(bld, (*TreeBuilder).Free)

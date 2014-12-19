@@ -2,7 +2,6 @@ package git
 
 /*
 #include <git2.h>
-#include <git2/errors.h>
 */
 import "C"
 
@@ -15,7 +14,7 @@ type BranchType uint
 
 const (
 	BranchLocal  BranchType = C.GIT_BRANCH_LOCAL
-	BranchRemote            = C.GIT_BRANCH_REMOTE
+	BranchRemote BranchType = C.GIT_BRANCH_REMOTE
 )
 
 type Branch struct {

@@ -40,19 +40,22 @@ type ConnectDirection uint
 
 const (
 	RemoteCompletionDownload RemoteCompletion = C.GIT_REMOTE_COMPLETION_DOWNLOAD
-	RemoteCompletionIndexing                  = C.GIT_REMOTE_COMPLETION_INDEXING
-	RemoteCompletionError                     = C.GIT_REMOTE_COMPLETION_ERROR
+	RemoteCompletionIndexing RemoteCompletion = C.GIT_REMOTE_COMPLETION_INDEXING
+	RemoteCompletionError    RemoteCompletion = C.GIT_REMOTE_COMPLETION_ERROR
 
 	ConnectDirectionFetch ConnectDirection = C.GIT_DIRECTION_FETCH
-	ConnectDirectionPush                   = C.GIT_DIRECTION_PUSH
+	ConnectDirectionPush  ConnectDirection = C.GIT_DIRECTION_PUSH
 )
 
-type TransportMessageCallback func(str string) int
-type CompletionCallback func(RemoteCompletion) int
-type CredentialsCallback func(url string, username_from_url string, allowed_types CredType) (int, *Cred)
-type TransferProgressCallback func(stats TransferProgress) int
-type UpdateTipsCallback func(refname string, a *Oid, b *Oid) int
-type CertificateCheckCallback func(cert *Certificate, valid bool, hostname string) int
+type TransportMessageCallback func(str string) ErrorCode
+type CompletionCallback func(RemoteCompletion) ErrorCode
+type CredentialsCallback func(url string, username_from_url string, allowed_types CredType) (ErrorCode, *Cred)
+type TransferProgressCallback func(stats TransferProgress) ErrorCode
+type UpdateTipsCallback func(refname string, a *Oid, b *Oid) ErrorCode
+type CertificateCheckCallback func(cert *Certificate, valid bool, hostname string) ErrorCode
+type PackbuilderProgressCallback func(stage int32, current, total uint32) ErrorCode
+type PushTransferProgressCallback func(current, total uint32, bytes uint) ErrorCode
+type PushUpdateReferenceCallback func(refname, status string) ErrorCode
 
 type RemoteCallbacks struct {
 	SidebandProgressCallback TransportMessageCallback
@@ -61,6 +64,9 @@ type RemoteCallbacks struct {
 	TransferProgressCallback
 	UpdateTipsCallback
 	CertificateCheckCallback
+	PackProgressCallback PackbuilderProgressCallback
+	PushTransferProgressCallback
+	PushUpdateReferenceCallback
 }
 
 type Remote struct {
@@ -72,7 +78,7 @@ type CertificateKind uint
 
 const (
 	CertificateX509    CertificateKind = C.GIT_CERT_X509
-	CertificateHostkey                 = C.GIT_CERT_HOSTKEY_LIBSSH2
+	CertificateHostkey CertificateKind = C.GIT_CERT_HOSTKEY_LIBSSH2
 )
 
 // Certificate represents the two possible certificates which libgit2
@@ -89,7 +95,7 @@ type HostkeyKind uint
 
 const (
 	HostkeyMD5  HostkeyKind = C.GIT_CERT_SSH_MD5
-	HostkeySHA1             = C.GIT_CERT_SSH_SHA1
+	HostkeySHA1 HostkeyKind = C.GIT_CERT_SSH_SHA1
 )
 
 // Server host key information. If Kind is HostkeyMD5 the MD5 field
@@ -129,7 +135,7 @@ func sidebandProgressCallback(_str *C.char, _len C.int, data unsafe.Pointer) int
 		return 0
 	}
 	str := C.GoStringN(_str, _len)
-	return callbacks.SidebandProgressCallback(str)
+	return int(callbacks.SidebandProgressCallback(str))
 }
 
 //export completionCallback
@@ -138,7 +144,7 @@ func completionCallback(completion_type C.git_remote_completion_type, data unsaf
 	if callbacks.CompletionCallback == nil {
 		return 0
 	}
-	return callbacks.CompletionCallback((RemoteCompletion)(completion_type))
+	return int(callbacks.CompletionCallback(RemoteCompletion(completion_type)))
 }
 
 //export credentialsCallback
@@ -151,7 +157,7 @@ func credentialsCallback(_cred **C.git_cred, _url *C.char, _username_from_url *C
 	username_from_url := C.GoString(_username_from_url)
 	ret, cred := callbacks.CredentialsCallback(url, username_from_url, (CredType)(allowed_types))
 	*_cred = cred.ptr
-	return ret
+	return int(ret)
 }
 
 //export transferProgressCallback
@@ -160,7 +166,7 @@ func transferProgressCallback(stats *C.git_transfer_progress, data unsafe.Pointe
 	if callbacks.TransferProgressCallback == nil {
 		return 0
 	}
-	return callbacks.TransferProgressCallback(newTransferProgressFromC(stats))
+	return int(callbacks.TransferProgressCallback(newTransferProgressFromC(stats)))
 }
 
 //export updateTipsCallback
@@ -172,7 +178,7 @@ func updateTipsCallback(_refname *C.char, _a *C.git_oid, _b *C.git_oid, data uns
 	refname := C.GoString(_refname)
 	a := newOidFromC(_a)
 	b := newOidFromC(_b)
-	return callbacks.UpdateTipsCallback(refname, a, b)
+	return int(callbacks.UpdateTipsCallback(refname, a, b))
 }
 
 //export certificateCheckCallback
@@ -213,7 +219,39 @@ func certificateCheckCallback(_cert *C.git_cert, _valid C.int, _host *C.char, da
 		return -1 // we don't support anything else atm
 	}
 
-	return callbacks.CertificateCheckCallback(&cert, valid, host)
+	return int(callbacks.CertificateCheckCallback(&cert, valid, host))
+}
+
+//export packProgressCallback
+func packProgressCallback(stage C.int, current, total C.uint, data unsafe.Pointer) int {
+	callbacks := (*RemoteCallbacks)(data)
+
+	if callbacks.PackProgressCallback == nil {
+		return 0
+	}
+
+	return int(callbacks.PackProgressCallback(int32(stage), uint32(current), uint32(total)))
+}
+
+//export pushTransferProgressCallback
+func pushTransferProgressCallback(current, total C.uint, bytes C.size_t, data unsafe.Pointer) int {
+	callbacks := (*RemoteCallbacks)(data)
+	if callbacks.PushTransferProgressCallback == nil {
+		return 0
+	}
+
+	return int(callbacks.PushTransferProgressCallback(uint32(current), uint32(total), uint(bytes)))
+}
+
+//export pushUpdateReferenceCallback
+func pushUpdateReferenceCallback(refname, status *C.char, data unsafe.Pointer) int {
+	callbacks := (*RemoteCallbacks)(data)
+
+	if callbacks.PushUpdateReferenceCallback == nil {
+		return 0
+	}
+
+	return int(callbacks.PushUpdateReferenceCallback(C.GoString(refname), C.GoString(status)))
 }
 
 func RemoteIsValidName(name string) bool {
@@ -249,6 +287,10 @@ func (r *Remote) Free() {
 
 func (repo *Repository) ListRemotes() ([]string, error) {
 	var r C.git_strarray
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ecode := C.git_remote_list(&r, repo.ptr)
 	if ecode < 0 {
 		return nil, MakeGitError(ecode)
@@ -276,6 +318,20 @@ func (repo *Repository) CreateRemote(name string, url string) (*Remote, error) {
 	}
 	runtime.SetFinalizer(remote, (*Remote).Free)
 	return remote, nil
+}
+
+func (repo *Repository) DeleteRemote(name string) error {
+	cname := C.CString(name)
+	defer C.free(unsafe.Pointer(cname))
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	ret := C.git_remote_delete(repo.ptr, cname)
+	if ret < 0 {
+		return MakeGitError(ret)
+	}
+	return nil
 }
 
 func (repo *Repository) CreateRemoteWithFetchspec(name string, url string, fetch string) (*Remote, error) {
@@ -318,7 +374,7 @@ func (repo *Repository) CreateAnonymousRemote(url, fetch string) (*Remote, error
 	return remote, nil
 }
 
-func (repo *Repository) LoadRemote(name string) (*Remote, error) {
+func (repo *Repository) LookupRemote(name string) (*Remote, error) {
 	remote := &Remote{}
 
 	cname := C.CString(name)
@@ -327,7 +383,7 @@ func (repo *Repository) LoadRemote(name string) (*Remote, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	ret := C.git_remote_load(&remote.ptr, repo.ptr, cname)
+	ret := C.git_remote_lookup(&remote.ptr, repo.ptr, cname)
 	if ret < 0 {
 		return nil, MakeGitError(ret)
 	}
@@ -559,6 +615,9 @@ func (o *Remote) Fetch(refspecs []string, sig *Signature, msg string) error {
 	crefspecs.strings = makeCStringsFromStrings(refspecs)
 	defer freeStrarray(&crefspecs)
 
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	ret := C.git_remote_fetch(o.ptr, &crefspecs, csig, cmsg)
 	if ret < 0 {
 		return MakeGitError(ret)
@@ -588,6 +647,9 @@ func (o *Remote) Ls(filterRefs ...string) ([]RemoteHead, error) {
 
 	var refs **C.git_remote_head
 	var length C.size_t
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	if ret := C.git_remote_ls(&refs, &length, o.ptr); ret != 0 {
 		return nil, MakeGitError(ret)
@@ -625,4 +687,41 @@ func (o *Remote) Ls(filterRefs ...string) ([]RemoteHead, error) {
 	}
 
 	return heads, nil
+}
+
+func (o *Remote) Push(refspecs []string, opts *PushOptions, sig *Signature, msg string) error {
+	var csig *C.git_signature = nil
+	if sig != nil {
+		csig = sig.toC()
+		defer C.free(unsafe.Pointer(csig))
+	}
+
+	var cmsg *C.char
+	if msg == "" {
+		cmsg = nil
+	} else {
+		cmsg = C.CString(msg)
+		defer C.free(unsafe.Pointer(cmsg))
+	}
+
+	var copts C.git_push_options
+	C.git_push_init_options(&copts, C.GIT_PUSH_OPTIONS_VERSION)
+	if opts != nil {
+		copts.version = C.uint(opts.Version)
+		copts.pb_parallelism = C.uint(opts.PbParallelism)
+	}
+
+	crefspecs := C.git_strarray{}
+	crefspecs.count = C.size_t(len(refspecs))
+	crefspecs.strings = makeCStringsFromStrings(refspecs)
+	defer freeStrarray(&crefspecs)
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	ret := C.git_remote_push(o.ptr, &crefspecs, &copts, csig, cmsg)
+	if ret < 0 {
+		return MakeGitError(ret)
+	}
+	return nil
 }

@@ -107,6 +107,10 @@ type HostkeyCertificate struct {
 	HashSHA1 [20]byte
 }
 
+type PushOptions struct {
+	PbParallelism uint
+}
+
 type RemoteHead struct {
 	Id   *Oid
 	Name string
@@ -707,7 +711,6 @@ func (o *Remote) Push(refspecs []string, opts *PushOptions, sig *Signature, msg 
 	var copts C.git_push_options
 	C.git_push_init_options(&copts, C.GIT_PUSH_OPTIONS_VERSION)
 	if opts != nil {
-		copts.version = C.uint(opts.Version)
 		copts.pb_parallelism = C.uint(opts.PbParallelism)
 	}
 
@@ -720,6 +723,21 @@ func (o *Remote) Push(refspecs []string, opts *PushOptions, sig *Signature, msg 
 	defer runtime.UnlockOSThread()
 
 	ret := C.git_remote_push(o.ptr, &crefspecs, &copts, csig, cmsg)
+	if ret < 0 {
+		return MakeGitError(ret)
+	}
+	return nil
+}
+
+func (o *Remote) PruneRefs() bool {
+	return C.git_remote_prune_refs(o.ptr) > 0
+}
+
+func (o *Remote) Prune() error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	ret := C.git_remote_prune(o.ptr)
 	if ret < 0 {
 		return MakeGitError(ret)
 	}
